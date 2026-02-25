@@ -7,76 +7,109 @@ url = "https://webapp.yuntech.edu.tw/WebNewCAS/Course/QueryCour.aspx"
 
 while True:
     try:
-        targetID = ["1234", "1235", "1236", "1237"] # TODO: 動態更新
-        
+        targetSemester = "1142"
+        targetCollege = ["1", "2", "3", "4", "5"]
+
         session = requests.Session()
         session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         })
+
         get_response = session.get(url)
         soup = BeautifulSoup(get_response.text, 'html.parser')
-        payload = {}
-        for tag in soup.find_all('input', type='hidden'):
-            name = tag.get('name')
-            if name:
-                payload[name] = tag.get('value', '')
 
+        def get_hidden_fields(s):
+            return {tag.get('name'): tag.get('value', '') for tag in s.find_all('input', type='hidden') if tag.get('name')}
+
+        payload = get_hidden_fields(soup)
         payload.update({
-            "ctl00$MainContent$AcadSeme": "1142",
-            "ctl00$MainContent$College": "",
-            "ctl00$MainContent$DeptCode": "",
-            # "ctl00$MainContent$MajOp$2": "on",
-            "ctl00$MainContent$CurrentSubj": "",
-            "ctl00$MainContent$SubjName": "",
-            "ctl00$MainContent$Instructor": "",
-            # "ctl00$MainContent$Weeks$1": "on",
-            # "ctl00$MainContent$Sections$4": "on",
-            # "ctl00$MainContent$Sections$5": "on",
-            # "ctl00$MainContent$Sections$6": "on",
-            # "ctl00$MainContent$Sections$7": "on",
+            "ctl00$MainContent$AcadSeme": targetSemester,
+            "ctl00$MainContent$College": "1",
             "ctl00$MainContent$Submit": "執行查詢"
         })
         
-        for courseID in targetID:
-            payload["ctl00$MainContent$CurrentSubj"] = courseID
+        for college in targetCollege:
+            payload["ctl00$MainContent$College"] = college
             post_response = session.post(url, data=payload)
 
-            # debug
-            # with open("debug.html", "w", encoding="utf-8") as f:
-            #     f.write(post_response.text)
+            # Ajax異步請求
+            soup2 = BeautifulSoup(post_response.text, 'html.parser')
+            ajax_payload = get_hidden_fields(soup2)
+
+            # 模擬Ajax標頭
+            # session.headers.update({
+            #     "X-MicrosoftAjax": "Delta=true",
+            #     "X-Requested-With": "XMLHttpRequest",
+            #     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+            # })
+
+            ajax_payload.update({
+                "ctl00$MainContent$ToolkitScriptManager1": "ctl00$MainContent$UpdatePanel2|ctl00$MainContent$PageControl1$PageSize",
+                "__EVENTTARGET": "ctl00$MainContent$PageControl1$PageSize",
+                "__EVENTARGUMENT": "",
+                "ctl00$MainContent$PageControl1$PageSize": "100",
+                # "__ASYNCPOST": "true"
+            })
+
+            ajax_response = session.post(url, data=ajax_payload)
+            current_page = 0
+
+            while True:
+                # debug
+                with open("debug.html", "w", encoding="utf-8") as f:
+                    f.write(ajax_response.text)
                 
-            if post_response.status_code == 200:
-                print("Success")
-                result_soup = BeautifulSoup(post_response.text, 'html.parser')
-                
-                table = result_soup.find("table", id="ctl00_MainContent_Course_GridView")
-                if table:
-                    for row in table.find_all("tr")[1:]:
-                        cols = row.find_all("td")
-                        if len(cols) >= 11:
-                            course_ID = cols[0].text.strip()
-                            course_cname = cols[2].get_text(separator="\n").strip().split('\n')[0]
-                            # course_ename = cols[2].get_text(separator="\n").strip().split('\n')[1]
-                            course_type = cols[5].text.strip()
-                            current_students = cols[9].text.strip()
-                            limit_text = cols[10].text.strip()
-                            limit_match = re.search(r'\d+', limit_text)
-                            max_limit = limit_match.group() if limit_match else "無限制"
-                            print({
-                                "課號": course_ID,
-                                "課名": course_cname,
-                                # "英文課名": course_ename,
-                                "課程類別": course_type,
-                                "修課人數": current_students,
-                                "人數限制(Max)": max_limit
-                            })
+                if ajax_response.status_code == 200:
+                    print("Success")
+                    result_soup = BeautifulSoup(ajax_response.text, 'html.parser')
+                    
+                    total_page = result_soup.find('span', id='ctl00_MainContent_PageControl1_TotalPage').text.strip()
+                    total_page = int(total_page) if total_page.isdigit() else 1
+                    
+                    table = result_soup.find("table", id="ctl00_MainContent_Course_GridView")
+                    if table:
+                        for row in table.find_all("tr")[1:]:
+                            cols = row.find_all("td")
+                            if len(cols) >= 11:
+                                course_ID = cols[0].text.strip()
+                                course_cname = cols[2].get_text(separator="\n").strip().split('\n')[0]
+                                # course_ename = cols[2].get_text(separator="\n").strip().split('\n')[1]
+                                course_type = cols[5].text.strip().splitlines()[0]
+                                current_students = cols[9].text.strip()
+                                limit_text = cols[10].text.strip()
+                                limit_match = re.search(r'\d+', limit_text)
+                                max_limit = limit_match.group() if limit_match else None
+                                print({
+                                    "學期": targetSemester,
+                                    "課號": course_ID,
+                                    "課名": course_cname,
+                                    # "英文課名": course_ename,
+                                    "課程類別": course_type,
+                                    "修課人數": current_students,
+                                    "人數限制(Max)": max_limit
+                                })
+                    else:
+                        print("HTML Failed")
+                    
+                    payload = get_hidden_fields(result_soup)
+                    next_page = current_page + 1
+                    
+                    if next_page >= total_page:
+                        break
+                    
+                    payload.update({
+                        "ctl00$MainContent$ToolkitScriptManager1": "ctl00$MainContent$UpdatePanel2|ctl00$MainContent$PageControl1$NextPage",
+                        "__EVENTTARGET": "ctl00$MainContent$PageControl1$NextPage",
+                        "__EVENTARGUMENT": "",
+                        "ctl00$MainContent$PageControl1$Pages": str(next_page),
+                    })
+                    
+                    # time.sleep(1)
+                    ajax_response = session.post(url, data=payload)
+                    current_page = next_page
                 else:
-                    print("找不到表格，請確認 HTML 內容是否正確。")
-            else:
-                print(f"Error:{post_response.status_code}")
-                
-            time.sleep(0.25)
-        
-        time.sleep(10)
+                    print(f"Error:{ajax_response.status_code}")
+                    break
     except Exception as e:
-        print(f"發生錯誤，略過此次查詢: {e}")
+        print(f"Error: {e}")
+        continue
