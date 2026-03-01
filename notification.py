@@ -36,9 +36,9 @@ async def notification(queue: asyncio.Queue):
                         JOIN course_subscriptions cs ON sub.id = cs.user_id
                         JOIN course c ON c.id = cs.course_pk_id
                         WHERE c.course_id = %s 
-                          AND c.semester = %s 
-                          AND cs.is_notified = 0 
-                          AND sub.is_active = 1
+                            AND c.semester = %s 
+                            AND cs.is_notified = 0 
+                            AND sub.is_active = 1
                     """
                     await cursor.execute(sql, (course_ID, targetSemester))
                     results = await cursor.fetchall()
